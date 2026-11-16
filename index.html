@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<title>A Tumba — Escape Room VR</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Uncial+Antiqua&display=swap">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<style>
+:root{--bg:#120a04;--gold:#e8b84a;--ink:#f6e7c1;--clay:#5a3a10}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){--bg:#120a04;--gold:#e8b84a;--ink:#f6e7c1;--clay:#5a3a10}}
+:root[data-theme="dark"]{--bg:#120a04;--gold:#e8b84a;--ink:#f6e7c1;--clay:#5a3a10}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:var(--bg);overflow:hidden;font-family:Georgia,'Times New Roman',serif;color:var(--ink)}
+canvas{display:block}
+#ui{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;padding:env(safe-area-inset-top,0px) 16px env(safe-area-inset-bottom,0px);background:radial-gradient(ellipse at center,rgba(40,20,5,.82),rgba(10,5,2,.97))}
+#ui[hidden]{display:none}
+.box{max-width:560px;border:3px double #6b4a1c;padding:28px 30px;color:#2e1a08;background:linear-gradient(100deg,#d9c088,#e6d3a0 40%,#cdb176 70%,#dcc592);box-shadow:0 0 40px rgba(0,0,0,.7),inset 0 0 40px rgba(110,70,20,.35);overflow-y:auto;max-height:100%}
+h1{margin:0 0 4px;font-family:'Uncial Antiqua',Papyrus,Georgia,serif;font-weight:400;font-size:clamp(3.2rem,12vw,5.5rem);line-height:1;color:#3a1f0a;text-align:center;text-shadow:1px 1px 0 rgba(255,235,180,.6)}
+.sub{text-align:center;font-style:italic;margin:0 0 14px;color:#5a3a10}
+p{line-height:1.55;margin:.6em 0}
+button{font:inherit;font-size:1.05rem;color:var(--ink);background:var(--clay);border:2px solid var(--gold);padding:12px 18px;margin:6px 8px 0 0;cursor:pointer}
+button:disabled{opacity:.5;cursor:default}
+button:focus-visible{outline:3px solid #fff;outline-offset:2px}
+small{opacity:.8;display:block;margin-top:14px;line-height:1.5}
+</style>
+</head>
+<body>
+<div id="ui"><div class="box">
+<h1>A Tumba</h1>
+<p class="sub">Escape room na pirâmide</p>
+<p>Você acorda na câmara mortuária de uma pirâmide, ao lado de um sarcófago. As tochas ainda queimam e a porta de pedra está selada. Resolva as charadas e descubra como sair. Duração: 3 a 5 minutos.</p>
+<button id="vr" disabled>Verificando VR…</button><button id="go">Jogar sem óculos</button>
+<small><b>Meta Quest 3S:</b> abra este link no Navegador Meta Quest e toque em Entrar em VR. Gatilho: tocar. Analógico esquerdo: andar. Analógico direito: girar.<br><b>Computador:</b> arraste para olhar, W A S D para andar, clique para tocar.</small>
+</div></div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+const $=id=>document.getElementById(id), ui=$('ui');
+const renderer=new THREE.WebGLRenderer({antialias:true});
+renderer.setPixelRatio(Math.min(devicePixelRatio,2));renderer.setSize(innerWidth,innerHeight);
+renderer.xr.enabled=true;renderer.xr.setReferenceSpaceType('local-floor');
+document.body.appendChild(renderer.domElement);
+const scene=new THREE.Scene();scene.background=new THREE.Color(0x0a0603);scene.fog=new THREE.Fog(0x0a0603,7,15);
+const camera=new THREE.PerspectiveCamera(70,innerWidth/innerHeight,.05,50);
+const rig=new THREE.Group();rig.add(camera);camera.position.y=1.6;scene.add(rig);
+addEventListener('resize',()=>{camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();renderer.setSize(innerWidth,innerHeight)});
+
+/* ---------- utilidades ---------- */
+const cv=(w,h,f)=>{const c=document.createElement('canvas');c.width=w;c.height=h;f(c.getContext('2d'),w,h);const t=new THREE.CanvasTexture(c);t.anisotropy=4;return t};
+function glyph(x,t,cx,cy,s,c){x.strokeStyle=c;x.fillStyle=c;x.lineWidth=s*.09;x.beginPath();
+ if(t==0){x.arc(cx,cy-s*.3,s*.25,0,7);x.moveTo(cx,cy-s*.05);x.lineTo(cx,cy+s*.5);x.moveTo(cx-s*.25,cy+s*.1);x.lineTo(cx+s*.25,cy+s*.1)}
+ else if(t==1){x.ellipse(cx,cy,s*.4,s*.2,0,0,7);x.moveTo(cx+s*.1,cy);x.arc(cx,cy,s*.1,0,7);x.moveTo(cx,cy+s*.2);x.lineTo(cx-s*.1,cy+s*.45)}
+ else if(t==2){for(let i=0;i<3;i++){x.moveTo(cx-s*.4,cy+(i-1)*s*.2);for(let k=1;k<=4;k++)x.lineTo(cx-s*.4+k*s*.2,cy+(i-1)*s*.2+(k%2?-1:1)*s*.08)}}
+ else if(t==3){x.arc(cx,cy,s*.3,0,7);x.moveTo(cx+s*.05,cy);x.arc(cx,cy,s*.05,0,7)}
+ else if(t==4){x.moveTo(cx-s*.4,cy+s*.2);x.lineTo(cx,cy-s*.3);x.lineTo(cx+s*.4,cy+s*.2);x.closePath()}
+ else{x.moveTo(cx,cy+s*.5);x.lineTo(cx,cy-s*.5);x.moveTo(cx,cy-s*.1);x.lineTo(cx+s*.2,cy-s*.3);x.moveTo(cx,cy+s*.1);x.lineTo(cx-s*.2,cy-s*.1)}
+ x.stroke()}
+function fig(x,cx,by,c){x.fillStyle='#8a4b24';x.beginPath();x.arc(cx,by-150,14,0,7);x.fill();x.fillRect(cx-12,by-135,24,55);x.fillStyle=c;x.fillRect(cx-16,by-82,32,45);x.fillStyle='#8a4b24';x.fillRect(cx-10,by-38,8,38);x.fillRect(cx+2,by-38,8,38);x.fillRect(cx+12,by-130,40,7)}
+const M=(c,o)=>new THREE.MeshPhongMaterial(Object.assign({color:c,shininess:10,specular:0x222222},o));
+const gold=M(0xd9a521,{specular:0xffe9a0,shininess:90,emissive:0x2a1c00}),stone=new THREE.MeshLambertMaterial({color:0xb8a07a}),
+ black=M(0x111111,{shininess:60}),blue=M(0x1f4e9c,{shininess:40}),alab=M(0xeadfc6,{shininess:50});
+const B=(w,h,d,m,x,y,z,p)=>{const o=new THREE.Mesh(new THREE.BoxGeometry(w,h,d),m);o.position.set(x,y,z);(p||scene).add(o);return o};
+const hits=[];const tag=(o,id)=>{o.traverse(m=>{if(m.isMesh){m.userData.id=id;hits.push(m)}});return o};
+const plane=(w,h,mat,x,y,z,ry,rx)=>{const o=new THREE.Mesh(new THREE.PlaneGeometry(w,h),mat);o.position.set(x,y,z);o.rotation.set(rx||0,ry||0,0);scene.add(o);return o};
+
+/* ---------- câmara (inspirada na tumba de Tutancâmon: 6,4 x 4 x 3,6 m) ---------- */
+const wallTex=cv(1024,512,(x,w,h)=>{x.fillStyle='#c99a3e';x.fillRect(0,0,w,h);
+ for(let i=0;i<1500;i++){x.fillStyle=`rgba(90,50,10,${Math.random()*.07})`;x.fillRect(Math.random()*w,Math.random()*h,Math.random()*30,2)}
+ [[0,26],[h-26,26]].forEach(([y,hh])=>{x.fillStyle='#6b2a14';x.fillRect(0,y,w,hh);x.fillStyle='#1f4e8c';x.fillRect(0,y+hh/2-3,w,6)});
+ for(let r=0;r<2;r++)for(let i=0;i<14;i++)glyph(x,(i*3+r)%6,40+i*72,85+r*55,38,'#3a1f0a');
+ ['#f3ead0','#2f7a54','#b03a2a','#1f4e8c','#f3ead0','#b03a2a'].forEach((c,i)=>fig(x,110+i*160,440,c))});
+const wm=new THREE.MeshLambertMaterial({map:wallTex});
+plane(6.4,3.6,wm,0,1.8,-2,0);plane(6.4,3.6,wm,0,1.8,2,Math.PI);
+plane(4,3.6,wm,-3.2,1.8,0,Math.PI/2);plane(4,3.6,wm,3.2,1.8,0,-Math.PI/2);
+const fl=cv(256,256,(x,w,h)=>{x.fillStyle='#8c7048';x.fillRect(0,0,w,h);for(let i=0;i<900;i++){x.fillStyle=`rgba(${Math.random()<.5?'40,25,10':'220,190,130'},.12)`;x.fillRect(Math.random()*w,Math.random()*h,3,3)}});
+fl.wrapS=fl.wrapT=THREE.RepeatWrapping;fl.repeat.set(4,3);
+plane(6.4,4,new THREE.MeshLambertMaterial({map:fl}),0,0,0,0,-Math.PI/2);
+plane(6.4,4,new THREE.MeshLambertMaterial({color:0x2a1a0c}),0,3.6,0,0,Math.PI/2);
+scene.add(new THREE.AmbientLight(0x6b4a2a,.95));
+
+/* tochas */
+const torches=[];
+[[-3.12,-1.2,Math.PI/2],[-3.12,1.2,Math.PI/2],[3.12,-1.5,-Math.PI/2],[3.12,1.5,-Math.PI/2]].forEach(([x,z,ry],i)=>{
+ const g=new THREE.Group();g.position.set(x,2,z);g.rotation.y=ry;scene.add(g);
+ const s=new THREE.Mesh(new THREE.CylinderGeometry(.04,.05,.6,8),M(0x3b2210));s.rotation.x=.35;g.add(s);
+ const f=new THREE.Mesh(new THREE.ConeGeometry(.08,.3,8),new THREE.MeshBasicMaterial({color:0xffa733,transparent:true,opacity:.9,blending:THREE.AdditiveBlending,depthWrite:false}));f.position.set(0,.42,.14);g.add(f);
+ const l=new THREE.PointLight(0xff9a3c,1.2,9,2);l.position.set(0,.55,.3);g.add(l);torches.push({f,l,i})});
+
+/* sarcófago + máscara */
+const sg=new THREE.Group();scene.add(sg);
+B(2.4,.65,1,stone,0,.325,0,sg);B(2.5,.2,1.1,gold,0,.75,0,sg);B(.5,.06,.35,gold,-.3,.88,0,sg);B(.2,.05,.3,blue,-.3,.92,0,sg);
+tag(sg,'sarc');
+const mk=new THREE.Group();mk.position.set(-.85,0,0);scene.add(mk);
+B(.42,.34,.44,blue,0,.95,0,mk);const hd=new THREE.Mesh(new THREE.SphereGeometry(.17,16,12),gold);hd.position.set(0,1,.02);hd.scale.set(1,1.2,.9);mk.add(hd);
+B(.3,.05,.3,gold,0,.84,.0,mk);tag(mk,'mask');
+
+/* trono dourado */
+const th=new THREE.Group();th.position.set(-2.3,0,.9);th.rotation.y=Math.PI/2;scene.add(th);
+B(.5,.06,.45,gold,0,.45,0,th);B(.5,.65,.05,gold,0,.8,-.2,th);B(.36,.4,.02,blue,0,.85,-.17,th);
+[[-.2,-.18],[.2,-.18],[-.2,.18],[.2,.18]].forEach(([a,b])=>B(.06,.45,.06,gold,a,.22,b,th));
+B(.04,.2,.4,gold,-.25,.58,0,th);B(.04,.2,.4,gold,.25,.58,0,th);tag(th,'throne');
+
+/* baú canópico */
+const cn=new THREE.Group();cn.position.set(-2.4,0,-1.1);scene.add(cn);
+B(.7,.05,.8,gold,0,.03,0,cn);B(.55,.4,.55,alab,0,.25,0,cn);B(.6,.1,.6,gold,0,.5,0,cn);
+[[-.25,-.25],[.25,-.25],[-.25,.25],[.25,.25]].forEach(([a,b])=>B(.06,.4,.06,gold,a,.25,b,cn));tag(cn,'canopic');
+
+/* santuário de Anúbis */
+const an=new THREE.Group();an.position.set(2.4,0,-1.1);an.rotation.y=Math.PI;scene.add(an);
+B(.5,.5,.8,gold,0,.25,0,an);B(.58,.06,.88,gold,0,.52,0,an);B(.18,.18,.5,black,0,.64,0,an);B(.16,.16,.22,black,0,.77,-.3,an);B(.07,.07,.14,black,0,.74,-.44,an);B(.2,.2,.04,gold,0,.68,-.2,an);
+[-.05,.05].forEach(a=>{const e=new THREE.Mesh(new THREE.ConeGeometry(.04,.18,6),black);e.position.set(a,.94,-.28);an.add(e)});tag(an,'anubis');
+
+/* estátuas-guardiãs (decoração) */
+[-1.15,1.15].forEach(z=>{const g=new THREE.Group();g.position.set(2.95,0,z);g.rotation.y=-Math.PI/2;scene.add(g);
+ B(.42,.5,.28,gold,0,.35,0,g);B(.36,.6,.22,black,0,.9,0,g);const h=new THREE.Mesh(new THREE.SphereGeometry(.13,12,10),black);h.position.y=1.35;g.add(h);B(.34,.22,.2,gold,0,1.4,0,g)});
+
+/* porta de saída */
+plane(1.8,2.7,new THREE.MeshBasicMaterial({color:0xe8b84a}),3.185,1.35,0,-Math.PI/2);
+const exitP=plane(1.5,2.5,new THREE.MeshBasicMaterial({color:0xfff0b0}),3.19,1.25,0,-Math.PI/2);exitP.visible=false;
+const doorTex=cv(256,512,(x,w,h)=>{x.fillStyle='#8f7a58';x.fillRect(0,0,w,h);for(let i=0;i<500;i++){x.fillStyle='rgba(40,25,10,.12)';x.fillRect(Math.random()*w,Math.random()*h,Math.random()*40,2)}
+ x.strokeStyle='#e8b84a';x.lineWidth=8;x.strokeRect(10,10,w-20,h-20);glyph(x,1,128,120,150,'#e8b84a');
+ x.beginPath();x.ellipse(128,300,52,80,0,0,7);x.stroke();for(let i=0;i<3;i++)glyph(x,[0,2,5][i],60+i*70,420,56,'#e8b84a')});
+const door=plane(1.5,2.5,new THREE.MeshBasicMaterial({map:doorTex}),3.17,1.25,0,-Math.PI/2);tag(door,'door');
+
+/* hieróglifos interativos (parede do fundo) */
+const glyphs={};
+[['sol',-2.2],['rio',0],['anu',2.2]].forEach(([id,x0])=>{
+ const tex=cv(256,256,(x)=>{x.fillStyle='#13264d';x.fillRect(0,0,256,256);x.strokeStyle='#e8b84a';x.lineWidth=10;x.strokeRect(5,5,246,246);
+  if(id=='sol'){x.strokeStyle=x.fillStyle='#ffb000';for(let a=0;a<12;a++){x.beginPath();x.moveTo(128+Math.cos(a/12*6.28)*70,128+Math.sin(a/12*6.28)*70);x.lineTo(128+Math.cos(a/12*6.28)*105,128+Math.sin(a/12*6.28)*105);x.lineWidth=10;x.stroke()}x.beginPath();x.arc(128,128,58,0,7);x.fill()}
+  else if(id=='rio'){x.strokeStyle='#4fd1d9';x.lineWidth=14;for(let i=0;i<3;i++){x.beginPath();x.moveTo(30,80+i*50);for(let k=0;k<4;k++)x.quadraticCurveTo(60+k*50,50+i*50,90+k*50-10,80+i*50);x.stroke()}}
+  else{x.fillStyle='#050505';[[70,30,100,100,60,100],[186,30,156,100,196,100]].forEach(p=>{x.beginPath();x.moveTo(p[0],p[1]);x.lineTo(p[2],p[3]);x.lineTo(p[4],p[5]);x.fill()});x.beginPath();x.moveTo(70,100);x.lineTo(186,100);x.lineTo(156,190);x.lineTo(128,235);x.lineTo(100,190);x.closePath();x.fill();x.fillStyle='#ffb000';x.fillRect(95,125,22,10);x.fillRect(139,125,22,10)}});
+ const frame=plane(1.2,1.2,new THREE.MeshBasicMaterial({color:0xe8b84a}),x0,1.75,-1.99,0);
+ const sym=plane(1.05,1.05,new THREE.MeshBasicMaterial({map:tex}),x0,1.75,-1.98,0);
+ tag(frame,id);tag(sym,id);glyphs[id]={frame}});
+
+/* ---------- painel de textos (UI no mundo) ---------- */
+const PW=1024,PH=640,pc=document.createElement('canvas');pc.width=PW;pc.height=PH;const px=pc.getContext('2d');
+const ptex=new THREE.CanvasTexture(pc);
+const panel=new THREE.Mesh(new THREE.PlaneGeometry(1.7,1.0625),new THREE.MeshBasicMaterial({map:ptex,transparent:true,depthTest:false,toneMapped:false}));
+panel.renderOrder=10;panel.visible=false;scene.add(panel);
+let btns=[];const TF='"Uncial Antiqua",Papyrus,Georgia,serif';
+function show(title,text,buttons,big){
+ px.clearRect(0,0,PW,PH);if(big){const gr=px.createLinearGradient(0,0,PW,PH);gr.addColorStop(0,'#d9c088');gr.addColorStop(.5,'#e6d3a0');gr.addColorStop(1,'#cdb176');px.fillStyle=gr}else px.fillStyle='rgba(18,10,4,.95)';px.fillRect(0,0,PW,PH);
+ px.strokeStyle=big?'#6b4a1c':'#e8b84a';px.lineWidth=8;px.strokeRect(8,8,PW-16,PH-16);
+ px.textAlign='center';px.fillStyle=big?'#3a1f0a':'#e8b84a';px.font=(big?'120px ':'44px ')+TF;px.fillText(title,PW/2,big?200:82);
+ px.fillStyle=big?'#3a1f0a':'#f6e7c1';px.font=(big?'italic ':'')+'31px Georgia,serif';let y=big?270:140;
+ text.split('\n').forEach(par=>{let line='';par.split(' ').forEach(w=>{const t=line?line+' '+w:w;if(px.measureText(t).width>900){px.fillText(line,PW/2,y);y+=41;line=w}else line=t});px.fillText(line,PW/2,y);y+=41});
+ btns=[];const n=buttons.length;
+ buttons.forEach((b,i)=>{const y0=PH-30-(n-i)*82+12;px.fillStyle='#5a3a10';px.fillRect(60,y0,PW-120,68);px.strokeStyle='#e8b84a';px.lineWidth=3;px.strokeRect(60,y0,PW-120,68);
+  px.fillStyle='#f6e7c1';px.font='30px Georgia,serif';px.fillText(b.l,PW/2,y0+45);btns.push({y0,y1:y0+68,fn:b.fn})});
+ ptex.needsUpdate=true;
+ const p=new THREE.Vector3(),d=new THREE.Vector3();camera.getWorldPosition(p);camera.getWorldDirection(d);d.y=0;d.normalize();
+ panel.position.copy(p).addScaledVector(d,1.3);panel.position.x=Math.max(-3,Math.min(3,panel.position.x));panel.position.z=Math.max(-1.9,Math.min(1.9,panel.position.z));panel.position.y=p.y-.05;
+ panel.lookAt(p.x,panel.position.y,p.z);panel.visible=true}
+const close=()=>{panel.visible=false};
+
+/* ---------- lógica do jogo ---------- */
+const solved=new Set(),touched=new Set();let opened=false,doorAnim=false,ac;
+function beep(f,d,ty){try{ac=ac||new AudioContext();const o=ac.createOscillator(),g=ac.createGain();o.type=ty||'sine';o.frequency.value=f;g.gain.value=.08;o.connect(g);g.connect(ac.destination);o.start();g.gain.exponentialRampToValueAtTime(.001,ac.currentTime+d);o.stop(ac.currentTime+d)}catch(e){}}
+const OK={l:'Continuar',fn:close};
+const RID={
+ sol:{t:'Charada do Sol',q:'Nasço no leste e me ponho no oeste. Os egípcios me chamavam de Rá e eu dou luz e calor ao mundo. Quem sou eu?',o:['A Lua','O Sol','Uma estrela'],a:1,f:'Isso! Rá, o deus Sol, cruzava o céu de barco todos os dias.'},
+ rio:{t:'Charada do Rio',q:'Todo ano eu transbordo e deixo a terra fértil. Sem mim, o Egito seria só deserto. Quem sou eu?',o:['O rio Nilo','O deserto','O mar'],a:0,f:'Isso! As cheias do Nilo traziam lama fértil para as plantações.'},
+ anu:{t:'Charada do Chacal',q:'Tenho cabeça de chacal e cuido dos mortos e da mumificação. Quem sou eu?',o:['Bastet, a gata','Hórus, o falcão','Anúbis'],a:2,f:'Isso! Anúbis guiava e protegia os mortos.'}};
+const TR={
+ mask:['Máscara dourada','Em 1922, Howard Carter achou a tumba de Tutancâmon quase intacta. A máscara de ouro do rei pesa cerca de 10 quilos.'],
+ throne:['Trono dourado','O trono de Tutancâmon é de madeira coberta de ouro e prata, com pedras e vidro colorido.'],
+ anubis:['Santuário de Anúbis','Na tumba de Tutancâmon, um chacal preto sobre um santuário dourado vigiava o tesouro.'],
+ canopic:['Baú canópico','Baús assim guardavam os jarros com os órgãos do rei, para a vida eterna.'],
+ sarc:['Sarcófago','Tutancâmon repousava em três caixões encaixados. O último é de ouro maciço.']};
+function riddle(id){const r=RID[id];show(r.t,r.q,r.o.map((o,i)=>({l:o,fn:()=>{
+ if(i==r.a){beep(660,.2);setTimeout(()=>beep(880,.3),160);solved.add(id);glyphs[id].frame.material.color.set(0x35e07a);const n=solved.size;
+  show('Correto!',r.f+'\n\nSelos ativados: '+n+'/3'+(n==3?'\n\nA porta de pedra começou a brilhar. Vá até ela!':''),[OK])}
+ else{beep(150,.3,'sawtooth');show('Ainda não…','Pense mais um pouco, explorador.',[{l:'Tentar de novo',fn:()=>riddle(id)}])}}})))}
+function treasure(id){touched.add(id);beep(520,.15);show(TR[id][0],TR[id][1]+'\n\nTesouros descobertos: '+touched.size+'/5',[{l:'Fechar',fn:close}])}
+function doorClick(){
+ if(opened)return;
+ if(solved.size<3)return show('Porta selada','Uma laje de pedra bloqueia a saída. Os 3 selos nos hieróglifos da parede do fundo precisam brilhar.\n\nSelos: '+solved.size+'/3',[OK]);
+ const bad=()=>{beep(150,.3,'sawtooth');show('Ainda não…','A porta continua fechada. Tente outra vez.',[{l:'Voltar',fn:doorClick}])};
+ show('A inscrição da porta','"Só sai da casa do rei quem a construiu." Quem levantou esta pirâmide?',[
+  {l:'Escravos acorrentados',fn:bad},{l:'Seres de outro planeta',fn:bad},{l:'Trabalhadores egípcios, pagos e alimentados',fn:()=>{beep(660,.2);step2()}}])}
+function step2(){
+ const bad=()=>{beep(150,.3,'sawtooth');show('Ainda não…','Olhe para as suas mãos de novo.',[{l:'Voltar',fn:step2}])};
+ show('Mais uma linha','Segundo o arqueólogo Zahi Hawass, os construtores eram egípcios livres, pagos com pão, carne e cerveja.\n\nA porta diz: "Olhe suas mãos calejadas, cheias de poeira de calcário. Quem é você?"',[
+  {l:'Um visitante curioso',fn:bad},{l:'Um dos servos que construíram a pirâmide',fn:()=>{beep(660,.2);reveal()}},{l:'Um sacerdote do faraó',fn:bad}])}
+function reveal(){show('Você se lembra!','Você é um dos operários do rei. Arrastou pedras, subiu rampas e, quando a obra terminou, ficou preso na câmara quando ela foi selada. A porta se abre!',[{l:'Sair da câmara',fn:()=>{close();opened=true;doorAnim=true;exitP.visible=true;beep(110,1.2,'triangle');setTimeout(ending,3200)}}])}
+function ending(){show('Fim do jogo','Embora você tenha construído a pirâmide junto a outros servos, você não terá vida no além: não foi mumificado como o faraó que repousa aqui.',[{l:'Recomeçar o jogo',fn:()=>{startReal();intro()}}])}
+function onHit(id){if(RID[id])solved.has(id)?show('Selo ativado','Você já resolveu esta charada.',[OK]):riddle(id);else if(id=='door')doorClick();else if(TR[id])treasure(id)}
+const intro=()=>show('Despertar na pirâmide','Você acorda ao lado de um sarcófago, à luz das tochas. A porta de pedra está selada.\n\nToque nos 3 hieróglifos brilhantes da parede do fundo e resolva as charadas. Toque também nos tesouros para descobrir seus segredos.',[{l:'Começar',fn:close}]);
+function start(){startReal();const t=()=>show('A Tumba','Escape room na pirâmide',[{l:'Começar',fn:intro}],1);(document.fonts?document.fonts.load('40px "Uncial Antiqua"'):Promise.resolve()).then(t,t)}
+function startReal(){solved.clear();touched.clear();opened=false;doorAnim=false;door.position.y=1.25;exitP.visible=false;
+ Object.values(glyphs).forEach(g=>g.frame.material.color.set(0xe8b84a));rig.position.set(0,0,1.1);rig.rotation.set(0,0,0);
+ show('Despertar na pirâmide','Você acorda ao lado de um sarcófago, à luz das tochas. A porta de pedra está selada.\n\nToque nos 3 hieróglifos brilhantes da parede do fundo e resolva as charadas. Toque também nos tesouros para descobrir seus segredos.',[{l:'Começar',fn:close}])}
+
+/* ---------- entrada: controles VR e desktop ---------- */
+const ray=new THREE.Raycaster(),tm=new THREE.Matrix4(),ctrls=[];
+const targets=()=>panel.visible?[panel]:hits;
+function fire(){const h=ray.intersectObjects(targets(),false)[0];if(!h)return;
+ if(panel.visible){const x=h.uv.x*PW,y=(1-h.uv.y)*PH;const b=btns.find(b=>y>=b.y0&&y<=b.y1&&x>60&&x<PW-60);if(b)b.fn()}else onHit(h.object.userData.id)}
+function setRay(c){tm.identity().extractRotation(c.matrixWorld);ray.set(new THREE.Vector3().setFromMatrixPosition(c.matrixWorld),new THREE.Vector3(0,0,-1).applyMatrix4(tm))}
+for(let i=0;i<2;i++){const c=renderer.xr.getController(i);
+ c.addEventListener('connected',e=>{c.userData.src=e.data});
+ c.addEventListener('selectstart',()=>{setRay(c);fire()});
+ const ln=new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(),new THREE.Vector3(0,0,-1)]),new THREE.LineBasicMaterial({color:0xffd966}));ln.scale.z=3;c.add(ln);c.userData.ln=ln;
+ const gr=new THREE.Mesh(new THREE.CylinderGeometry(.015,.02,.1,8),gold);gr.rotation.x=Math.PI/2;c.add(gr);rig.add(c);ctrls.push(c)}
+const el=renderer.domElement;let drag=null;const keys={};
+el.addEventListener('pointerdown',e=>{drag={x:e.clientX,y:e.clientY,m:0}});
+el.addEventListener('pointermove',e=>{if(!drag||renderer.xr.isPresenting)return;const dx=e.clientX-drag.x,dy=e.clientY-drag.y;drag.m+=Math.abs(dx)+Math.abs(dy);rig.rotation.y-=dx*.004;camera.rotation.x=Math.max(-1.2,Math.min(1.2,camera.rotation.x-dy*.004));drag.x=e.clientX;drag.y=e.clientY});
+el.addEventListener('pointerup',e=>{if(drag&&drag.m<6&&!renderer.xr.isPresenting){ray.setFromCamera(new THREE.Vector2(e.clientX/innerWidth*2-1,-e.clientY/innerHeight*2+1),camera);fire()}drag=null});
+addEventListener('keydown',e=>keys[e.key.toLowerCase()]=1);addEventListener('keyup',e=>keys[e.key.toLowerCase()]=0);
+function tryMove(dx,dz){const p=rig.position,bad=(x,z)=>Math.abs(x)<1.55&&Math.abs(z)<.8||Math.abs(x)>2.9||Math.abs(z)>1.7;
+ if(!bad(p.x+dx,p.z))p.x+=dx;if(!bad(p.x,p.z+dz))p.z+=dz}
+function move(sx,sy,dt){if(panel.visible)return;if(Math.abs(sx)<.15)sx=0;if(Math.abs(sy)<.15)sy=0;if(!sx&&!sy)return;
+ const d=new THREE.Vector3();camera.getWorldDirection(d);d.y=0;d.normalize();const sp=1.6*dt;
+ tryMove((d.x*-sy+(-d.z)*sx)*sp,(d.z*-sy+d.x*sx)*sp)}
+
+/* ---------- laço principal ---------- */
+let last=0,snap=false;
+renderer.setAnimationLoop(t=>{const dt=Math.min((t-last)/1000,.1);last=t;
+ torches.forEach(o=>{o.l.intensity=1.15+Math.sin(t/110+o.i*2)*.15+Math.random()*.12;o.f.scale.set(1,.9+Math.random()*.3,1)});
+ Object.entries(glyphs).forEach(([k,g],i)=>{if(!solved.has(k))g.frame.scale.setScalar(1+Math.sin(t/300+i)*.025)});
+ if(doorAnim){door.position.y-=dt*.8;if(door.position.y<-1.3)doorAnim=false}
+ if(renderer.xr.isPresenting){
+  ctrls.forEach(c=>{const s=c.userData.src,gp=s&&s.gamepad;
+   if(gp){const a=gp.axes,sx=a[2]!==undefined?a[2]:a[0],sy=a[3]!==undefined?a[3]:a[1];
+    if(s.handedness=='left')move(sx,sy,dt);
+    else if(s.handedness=='right'){if(Math.abs(sx)<.3)snap=false;else if(Math.abs(sx)>.7&&!snap){snap=true;rig.rotation.y-=Math.sign(sx)*Math.PI/6}}}
+   setRay(c);const h=ray.intersectObjects(targets(),false)[0];c.userData.ln.scale.z=h?h.distance:3})
+ }else if(!ui.hidden===false){
+  const f=(keys.w||keys.arrowup?1:0)-(keys.s||keys.arrowdown?1:0),s=(keys.d?1:0)-(keys.a?1:0);move(s,-f,dt);
+  if(keys.arrowleft)rig.rotation.y+=dt*1.5;if(keys.arrowright)rig.rotation.y-=dt*1.5}
+ renderer.render(scene,camera)});
+
+/* ---------- botões ---------- */
+$('go').onclick=()=>{ui.hidden=true;start()};
+const vrb=$('vr');
+if(navigator.xr){navigator.xr.isSessionSupported('immersive-vr').then(ok=>{vrb.disabled=!ok;vrb.textContent=ok?'Entrar em VR':'VR indisponível neste navegador'}).catch(()=>{vrb.textContent='VR indisponível'})}
+else vrb.textContent='VR indisponível neste navegador';
+vrb.onclick=async()=>{try{const s=await navigator.xr.requestSession('immersive-vr',{optionalFeatures:['local-floor','bounded-floor']});
+ await renderer.xr.setSession(s);ui.hidden=true;start();
+ s.addEventListener('end',()=>{ui.hidden=false;camera.position.set(0,1.6,0);camera.rotation.set(0,0,0)})}catch(e){vrb.textContent='Não foi possível iniciar o VR. Abra o link direto no Navegador Meta Quest.'}};
+</script>
+</body>
+</html>
